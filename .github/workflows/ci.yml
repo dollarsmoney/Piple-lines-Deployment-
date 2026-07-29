@@ -24,13 +24,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
-
-      - name: Rebuild native modules
-        run: |
-          npm rebuild esbuild || true
-          npm rebuild sharp || true
-          npm rebuild || true
+        run: rm -rf node_modules package-lock.json && npm install
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
@@ -63,8 +57,13 @@ jobs:
           path: coverage/
           retention-days: 14
 
-      - name: Build Project
-        run: npm run build
+      - name: Build Backend Services
+        run: |
+          npm run build:packages
+          npm run build --workspace=@ecom/api-gateway
+          npm run build --workspace=@ecom/auth-service
+          npm run build --workspace=@ecom/product-service
+          npm run build --workspace=@ecom/order-service
 
   analyze:
     name: CodeQL Static Analysis
