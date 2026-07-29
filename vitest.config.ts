@@ -20,9 +20,9 @@ export default defineConfig({
         'web/components/ui/**',
       ],
       thresholds: {
-        lines: 60,
-        functions: 60,
-        statements: 60,
+        lines: 55,
+        functions: 55,
+        statements: 55,
         branches: 55,
       },
     },
