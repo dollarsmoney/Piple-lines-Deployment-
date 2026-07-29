@@ -20,11 +20,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install Dependencies
-        run: rm -f package-lock.json && npm install
+        run: npm ci
+
+      - name: Rebuild native modules
+        run: |
+          npm rebuild esbuild || true
+          npm rebuild sharp || true
+          npm rebuild || true
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
