@@ -31,12 +31,16 @@ export default function CheckoutPage() {
     defaultValues: {
       shippingAddress: {
         country: 'US', // Default for demo
-      }
-    }
+      },
+    },
   });
 
   if (authLoading || cartLoading) {
-    return <div className="container-page py-20 text-center text-muted-foreground">Loading checkout…</div>;
+    return (
+      <div className="container-page py-20 text-center text-muted-foreground">
+        Loading checkout…
+      </div>
+    );
   }
 
   if (!token) {
@@ -44,7 +48,9 @@ export default function CheckoutPage() {
       <div className="container-page py-32 text-center">
         <h1 className="text-2xl font-bold">Please sign in</h1>
         <p className="mt-2 text-muted-foreground">You must be signed in to checkout.</p>
-        <Button className="mt-6" onClick={() => router.push('/')}>Return Home</Button>
+        <Button className="mt-6" onClick={() => router.push('/')}>
+          Return Home
+        </Button>
       </div>
     );
   }
@@ -54,7 +60,9 @@ export default function CheckoutPage() {
       <div className="container-page py-32 text-center">
         <h1 className="text-2xl font-bold">Your cart is empty</h1>
         <p className="mt-2 text-muted-foreground">Add some items before checking out.</p>
-        <Button className="mt-6" onClick={() => router.push('/')}>Browse Products</Button>
+        <Button className="mt-6" onClick={() => router.push('/')}>
+          Browse Products
+        </Button>
       </div>
     );
   }
@@ -75,7 +83,7 @@ export default function CheckoutPage() {
   return (
     <div className="container-page py-10">
       <h1 className="mb-8 text-3xl font-bold tracking-tight">Checkout</h1>
-      
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
         {/* Main form */}
         <div className="lg:col-span-7 xl:col-span-8">
@@ -89,42 +97,70 @@ export default function CheckoutPage() {
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="fullName">Full Name</Label>
                     <Input id="fullName" {...register('shippingAddress.fullName')} />
-                    {errors.shippingAddress?.fullName && <p className="text-xs text-destructive">{errors.shippingAddress.fullName.message}</p>}
+                    {errors.shippingAddress?.fullName && (
+                      <p className="text-xs text-destructive">
+                        {errors.shippingAddress.fullName.message}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="email">Email Address</Label>
                     <Input id="email" type="email" {...register('shippingAddress.email')} />
-                    {errors.shippingAddress?.email && <p className="text-xs text-destructive">{errors.shippingAddress.email.message}</p>}
+                    {errors.shippingAddress?.email && (
+                      <p className="text-xs text-destructive">
+                        {errors.shippingAddress.email.message}
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="line1">Address Line 1</Label>
                   <Input id="line1" {...register('shippingAddress.line1')} />
-                  {errors.shippingAddress?.line1 && <p className="text-xs text-destructive">{errors.shippingAddress.line1.message}</p>}
+                  {errors.shippingAddress?.line1 && (
+                    <p className="text-xs text-destructive">
+                      {errors.shippingAddress.line1.message}
+                    </p>
+                  )}
                 </div>
-                
+
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="line2">Address Line 2 (Optional)</Label>
                   <Input id="line2" {...register('shippingAddress.line2')} />
-                  {errors.shippingAddress?.line2 && <p className="text-xs text-destructive">{errors.shippingAddress.line2.message}</p>}
+                  {errors.shippingAddress?.line2 && (
+                    <p className="text-xs text-destructive">
+                      {errors.shippingAddress.line2.message}
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="city">City</Label>
                     <Input id="city" {...register('shippingAddress.city')} />
-                    {errors.shippingAddress?.city && <p className="text-xs text-destructive">{errors.shippingAddress.city.message}</p>}
+                    {errors.shippingAddress?.city && (
+                      <p className="text-xs text-destructive">
+                        {errors.shippingAddress.city.message}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="postalCode">Postal Code</Label>
                     <Input id="postalCode" {...register('shippingAddress.postalCode')} />
-                    {errors.shippingAddress?.postalCode && <p className="text-xs text-destructive">{errors.shippingAddress.postalCode.message}</p>}
+                    {errors.shippingAddress?.postalCode && (
+                      <p className="text-xs text-destructive">
+                        {errors.shippingAddress.postalCode.message}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="country">Country</Label>
                     <Input id="country" {...register('shippingAddress.country')} />
-                    {errors.shippingAddress?.country && <p className="text-xs text-destructive">{errors.shippingAddress.country.message}</p>}
+                    {errors.shippingAddress?.country && (
+                      <p className="text-xs text-destructive">
+                        {errors.shippingAddress.country.message}
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -151,7 +187,7 @@ export default function CheckoutPage() {
                 ))}
 
                 <Separator className="my-2" />
-                
+
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>{formatPrice(cart?.subtotal ?? 0)}</span>
@@ -167,11 +203,11 @@ export default function CheckoutPage() {
                   <span className="text-muted-foreground">Tax</span>
                   <span>Calculated at next step</span>
                 </div>
-                
-                <Button 
-                  type="submit" 
+
+                <Button
+                  type="submit"
                   form="checkout-form"
-                  size="lg" 
+                  size="lg"
                   className="mt-6 w-full"
                   disabled={isSubmitting}
                 >

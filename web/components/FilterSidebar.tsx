@@ -82,9 +82,7 @@ export function FilterSidebar({ filters, onFiltersChange, className }: FilterSid
             <button
               key={cat}
               id={`category-${cat.toLowerCase()}`}
-              onClick={() =>
-                update({ category: selectedCategory === cat ? undefined : cat })
-              }
+              onClick={() => update({ category: selectedCategory === cat ? undefined : cat })}
               className={cn(
                 'flex items-center rounded-md px-3 py-1.5 text-sm transition-colors text-left',
                 selectedCategory === cat

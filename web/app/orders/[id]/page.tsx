@@ -23,29 +23,36 @@ export default function OrderDetailPage(props: { params: Promise<{ id: string }>
 
   useEffect(() => {
     if (authLoading) return;
-    
+
     if (!token) {
       router.push('/');
       return;
     }
 
-    api.get<Order>(`/api/orders/${params.id}`)
-      .then(data => setOrder(data))
-      .catch(err => setError(err instanceof Error ? err : new Error('Failed to load order')))
+    api
+      .get<Order>(`/api/orders/${params.id}`)
+      .then((data) => setOrder(data))
+      .catch((err) => setError(err instanceof Error ? err : new Error('Failed to load order')))
       .finally(() => setIsLoading(false));
   }, [token, authLoading, router, params.id]);
 
   if (authLoading || isLoading) {
-    return <div className="container-page py-20 text-center text-muted-foreground">Loading order details…</div>;
+    return (
+      <div className="container-page py-20 text-center text-muted-foreground">
+        Loading order details…
+      </div>
+    );
   }
-  
+
   if (!token) return null; // Redirecting
 
   if (error || !order) {
     return (
       <div className="container-page py-32 text-center">
         <h1 className="text-2xl font-bold">Order not found</h1>
-        <p className="mt-2 text-muted-foreground">This order may not exist or you don't have access to it.</p>
+        <p className="mt-2 text-muted-foreground">
+          This order may not exist or you don't have access to it.
+        </p>
         <Button className="mt-6" asChild>
           <Link href="/orders">Back to Orders</Link>
         </Button>
@@ -56,7 +63,12 @@ export default function OrderDetailPage(props: { params: Promise<{ id: string }>
   return (
     <div className="container-page py-10 max-w-5xl">
       <div className="mb-8">
-        <Button variant="ghost" size="sm" asChild className="-ml-3 mb-4 text-muted-foreground hover:text-foreground">
+        <Button
+          variant="ghost"
+          size="sm"
+          asChild
+          className="-ml-3 mb-4 text-muted-foreground hover:text-foreground"
+        >
           <Link href="/orders">
             <ArrowLeft className="mr-2 size-4" />
             Back to Orders
@@ -84,14 +96,17 @@ export default function OrderDetailPage(props: { params: Promise<{ id: string }>
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-6">
-              {order.items.map(item => (
+              {order.items.map((item) => (
                 <div key={item.productId} className="flex gap-4">
                   <div className="relative size-20 shrink-0 overflow-hidden rounded-md border bg-muted">
                     <img src={item.image} alt={item.title} className="size-full object-cover" />
                   </div>
                   <div className="flex flex-1 flex-col justify-between">
                     <div className="flex items-start justify-between gap-4">
-                      <Link href={`/products/${item.slug}`} className="font-medium hover:underline line-clamp-2">
+                      <Link
+                        href={`/products/${item.slug}`}
+                        className="font-medium hover:underline line-clamp-2"
+                      >
                         {item.title}
                       </Link>
                       <span className="font-semibold">{formatPrice(item.price)}</span>

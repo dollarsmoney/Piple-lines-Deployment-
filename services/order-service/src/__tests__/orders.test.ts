@@ -137,7 +137,7 @@ describe('POST /orders', () => {
 });
 
 describe('GET /orders', () => {
-  it('lists the caller\'s orders newest first', async () => {
+  it("lists the caller's orders newest first", async () => {
     await seedCart('prd_001', 1);
     await checkout();
     await seedCart('prd_022', 1);
@@ -152,7 +152,7 @@ describe('GET /orders', () => {
     );
   });
 
-  it('does not leak another shopper\'s orders', async () => {
+  it("does not leak another shopper's orders", async () => {
     await seedCart('prd_001', 1, OTHER_USER);
     await checkout(OTHER_USER);
 

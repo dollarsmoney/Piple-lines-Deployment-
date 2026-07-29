@@ -21,7 +21,10 @@ export function StarRating({ rating, reviewCount, className }: StarRatingProps) 
         {partial >= 0.5 && (
           <span className="relative inline-block">
             <Star className="size-3.5 text-muted-foreground/30" />
-            <span className="absolute inset-0 overflow-hidden" style={{ width: `${partial * 100}%` }}>
+            <span
+              className="absolute inset-0 overflow-hidden"
+              style={{ width: `${partial * 100}%` }}
+            >
               <Star className="size-3.5 fill-amber-400 text-amber-400" />
             </span>
           </span>

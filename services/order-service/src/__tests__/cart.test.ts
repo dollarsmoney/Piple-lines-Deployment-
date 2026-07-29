@@ -50,7 +50,7 @@ describe('GET /cart', () => {
     expect(res.body.data).toMatchObject({ items: [], subtotal: 0, itemCount: 0 });
   });
 
-  it('keeps each user\'s cart separate', async () => {
+  it("keeps each user's cart separate", async () => {
     await addToCart('prd_001', 2);
 
     const otherUser = await request(app).get('/cart').set('x-user-id', 'usr_someone_else');

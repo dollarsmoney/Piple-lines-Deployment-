@@ -68,7 +68,13 @@ export function Navbar() {
 
           {/* Cart */}
           <CartDrawer>
-            <Button id="cart-btn" variant="ghost" size="icon" className="relative" aria-label="Cart">
+            <Button
+              id="cart-btn"
+              variant="ghost"
+              size="icon"
+              className="relative"
+              aria-label="Cart"
+            >
               <ShoppingCart className="size-4" />
               {itemCount > 0 && (
                 <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">

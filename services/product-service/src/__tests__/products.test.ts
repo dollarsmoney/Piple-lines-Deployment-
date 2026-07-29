@@ -142,7 +142,9 @@ describe('POST /products/validate', () => {
   });
 
   it('is not shadowed by the /products/:id route', async () => {
-    const res = await request(app).post('/products/validate').send({ productIds: ['prd_001'] });
+    const res = await request(app)
+      .post('/products/validate')
+      .send({ productIds: ['prd_001'] });
 
     expect(res.status).toBe(200);
   });

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { formatPrice, formatDate, formatStatus, statusColor, formatRating, formatItemCount } from '@/lib/format';
+import {
+  formatPrice,
+  formatDate,
+  formatStatus,
+  statusColor,
+  formatRating,
+  formatItemCount,
+} from '@/lib/format';
 import type { OrderStatus } from '@ecom/shared';
 
 describe('lib/format', () => {

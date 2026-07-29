@@ -38,7 +38,12 @@ function buildQuery(filters: ProductFilters): string {
 }
 
 export function useProducts(initial: ProductFilters = {}): UseProductsResult {
-  const [filters, setFilters] = useState<ProductFilters>({ sort: 'newest', page: 1, limit: 12, ...initial });
+  const [filters, setFilters] = useState<ProductFilters>({
+    sort: 'newest',
+    page: 1,
+    limit: 12,
+    ...initial,
+  });
   const [data, setData] = useState<Paginated<Product> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);

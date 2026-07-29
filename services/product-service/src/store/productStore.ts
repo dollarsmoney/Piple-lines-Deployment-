@@ -1,4 +1,10 @@
-import { NotFoundError, paginate, type Paginated, type Product, type ProductQuery } from '@ecom/shared';
+import {
+  NotFoundError,
+  paginate,
+  type Paginated,
+  type Product,
+  type ProductQuery,
+} from '@ecom/shared';
 import { seedProducts } from '../data/products.js';
 
 /**

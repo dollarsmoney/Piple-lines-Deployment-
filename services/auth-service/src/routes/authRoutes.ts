@@ -9,7 +9,13 @@ import {
   type RegisterInput,
 } from '@ecom/shared';
 import { extractBearerToken, signToken, verifyToken } from '../tokens.js';
-import { createUser, findByEmail, findById, toPublicUser, verifyPassword } from '../store/userStore.js';
+import {
+  createUser,
+  findByEmail,
+  findById,
+  toPublicUser,
+  verifyPassword,
+} from '../store/userStore.js';
 
 export const authRoutes = router();
 

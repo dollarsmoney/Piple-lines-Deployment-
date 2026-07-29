@@ -22,22 +22,23 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (authLoading) return;
-    
+
     if (!token) {
       router.push('/');
       return;
     }
 
-    api.get<Order[]>('/api/orders')
-      .then(data => setOrders(data))
-      .catch(err => setError(err instanceof Error ? err : new Error('Failed to load orders')))
+    api
+      .get<Order[]>('/api/orders')
+      .then((data) => setOrders(data))
+      .catch((err) => setError(err instanceof Error ? err : new Error('Failed to load orders')))
       .finally(() => setIsLoading(false));
   }, [token, authLoading, router]);
 
   if (authLoading) {
     return <div className="container-page py-20 text-center text-muted-foreground">Loading…</div>;
   }
-  
+
   if (!token) return null; // Redirecting
 
   return (
@@ -66,7 +67,9 @@ export default function OrdersPage() {
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed py-24 text-center">
           <Package className="size-12 text-muted-foreground/40 mb-4" />
           <h2 className="text-xl font-semibold">No orders yet</h2>
-          <p className="mt-2 text-muted-foreground">When you place an order, it will appear here.</p>
+          <p className="mt-2 text-muted-foreground">
+            When you place an order, it will appear here.
+          </p>
           <Button asChild className="mt-6">
             <Link href="/">Start Shopping</Link>
           </Button>
@@ -74,7 +77,10 @@ export default function OrdersPage() {
       ) : (
         <div className="flex flex-col gap-6">
           {orders.map((order) => (
-            <Card key={order.id} className="overflow-hidden transition-colors hover:border-primary/50">
+            <Card
+              key={order.id}
+              className="overflow-hidden transition-colors hover:border-primary/50"
+            >
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b bg-muted/30 px-6 py-4">
                 <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
                   <div>
@@ -102,8 +108,11 @@ export default function OrdersPage() {
 
               <CardContent className="p-6">
                 <div className="flex gap-4 overflow-x-auto pb-2">
-                  {order.items.map(item => (
-                    <div key={item.productId} className="flex shrink-0 items-center gap-4 border-r pr-6 last:border-0 last:pr-0">
+                  {order.items.map((item) => (
+                    <div
+                      key={item.productId}
+                      className="flex shrink-0 items-center gap-4 border-r pr-6 last:border-0 last:pr-0"
+                    >
                       <div className="relative size-16 shrink-0 overflow-hidden rounded-md border bg-muted">
                         <img src={item.image} alt={item.title} className="size-full object-cover" />
                       </div>

@@ -56,8 +56,7 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 // ── Typed helpers ────────────────────────────────────────────────────────────
 
 export const api = {
-  get: <T>(path: string, opts?: FetchOptions) =>
-    apiFetch<T>(path, { method: 'GET', ...opts }),
+  get: <T>(path: string, opts?: FetchOptions) => apiFetch<T>(path, { method: 'GET', ...opts }),
 
   post: <T>(path: string, body: unknown, opts?: FetchOptions) =>
     apiFetch<T>(path, { method: 'POST', body, ...opts }),

@@ -4,6 +4,9 @@ import { config } from './config.js';
 
 const { app, logger } = createApp();
 
-logger.info({ upstreams: config.upstreams, corsOrigin: config.corsOrigin }, 'Gateway routing table');
+logger.info(
+  { upstreams: config.upstreams, corsOrigin: config.corsOrigin },
+  'Gateway routing table'
+);
 
 startServer({ app, logger, port: config.port, service: config.service });

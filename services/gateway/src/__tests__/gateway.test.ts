@@ -155,7 +155,9 @@ describe('authentication', () => {
   });
 
   it('injects x-user-id downstream for a valid token', async () => {
-    const res = await request(app).get('/api/cart').set('authorization', `Bearer ${tokenFor('usr_42')}`);
+    const res = await request(app)
+      .get('/api/cart')
+      .set('authorization', `Bearer ${tokenFor('usr_42')}`);
 
     expect(res.status).toBe(200);
     expect(res.body.data.userId).toBe('usr_42');

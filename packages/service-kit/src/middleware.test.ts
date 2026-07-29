@@ -4,7 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { NotFoundError, ValidationError } from '@ecom/shared';
 import { createLogger } from './logger.js';
-import { asyncHandler, errorHandler, notFoundHandler, requireUser, validate } from './middleware.js';
+import {
+  asyncHandler,
+  errorHandler,
+  notFoundHandler,
+  requireUser,
+  validate,
+} from './middleware.js';
 
 const logger = createLogger('test');
 logger.level = 'silent';
@@ -48,8 +54,10 @@ describe('validate', () => {
 
   it('validates the query string too', async () => {
     const app = buildApp((a) => {
-      a.get('/search', validate(z.object({ page: z.coerce.number().default(1) }), 'query'), (req, res) =>
-        res.json(req.query)
+      a.get(
+        '/search',
+        validate(z.object({ page: z.coerce.number().default(1) }), 'query'),
+        (req, res) => res.json(req.query)
       );
     });
 

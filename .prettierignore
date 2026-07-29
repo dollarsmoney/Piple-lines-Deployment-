@@ -5,3 +5,4 @@ coverage
 .next
 package-lock.json
 *.md
+.cache

@@ -35,11 +35,11 @@ export default function HomePage() {
             New arrivals every week
           </div>
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-            Tech you&apos;ll{' '}
-            <span className="text-primary">actually love</span>
+            Tech you&apos;ll <span className="text-primary">actually love</span>
           </h1>
           <p className="mt-4 text-lg text-muted-foreground max-w-xl mx-auto">
-            Curated audio, wearables, computing gear and home tech — picked for quality, priced fairly.
+            Curated audio, wearables, computing gear and home tech — picked for quality, priced
+            fairly.
           </p>
 
           {/* Search bar */}

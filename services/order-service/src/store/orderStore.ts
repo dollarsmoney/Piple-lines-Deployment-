@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { NotFoundError, type Order, type OrderItem, type OrderTotals, type ShippingAddress } from '@ecom/shared';
+import {
+  NotFoundError,
+  type Order,
+  type OrderItem,
+  type OrderTotals,
+  type ShippingAddress,
+} from '@ecom/shared';
 
 const ordersByUser = new Map<string, Order[]>();
 
@@ -18,12 +24,7 @@ export interface CreateOrderInput {
   shippingAddress: ShippingAddress;
 }
 
-export function createOrder({
-  userId,
-  items,
-  totals,
-  shippingAddress,
-}: CreateOrderInput): Order {
+export function createOrder({ userId, items, totals, shippingAddress }: CreateOrderInput): Order {
   const order: Order = {
     id: `ord_${randomUUID()}`,
     reference: nextReference(),

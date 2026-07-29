@@ -25,7 +25,9 @@ export default function ProductPage(props: { params: Promise<{ slug: string }> }
     return (
       <div className="container-page flex flex-col items-center justify-center py-32 text-center">
         <h1 className="text-2xl font-bold">Product not found</h1>
-        <p className="mt-2 text-muted-foreground">This item may have been removed or doesn't exist.</p>
+        <p className="mt-2 text-muted-foreground">
+          This item may have been removed or doesn't exist.
+        </p>
       </div>
     );
   }
@@ -82,7 +84,7 @@ export default function ProductPage(props: { params: Promise<{ slug: string }> }
                 <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
                   {product.title}
                 </h1>
-                
+
                 <div className="mt-4 flex items-center gap-4">
                   <StarRating rating={product.rating} reviewCount={product.reviewCount} />
                   <Badge variant="outline" className="text-xs">
@@ -146,7 +148,7 @@ export default function ProductPage(props: { params: Promise<{ slug: string }> }
 
                 {product.tags.length > 0 && (
                   <div className="mt-8 flex flex-wrap gap-2">
-                    {product.tags.map(tag => (
+                    {product.tags.map((tag) => (
                       <Badge key={tag} variant="secondary" className="bg-muted">
                         #{tag}
                       </Badge>

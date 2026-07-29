@@ -1,4 +1,10 @@
-import { calculateSubtotal, countItems, type Cart, type CartItem, type Product } from '@ecom/shared';
+import {
+  calculateSubtotal,
+  countItems,
+  type Cart,
+  type CartItem,
+  type Product,
+} from '@ecom/shared';
 
 const carts = new Map<string, CartItem[]>();
 

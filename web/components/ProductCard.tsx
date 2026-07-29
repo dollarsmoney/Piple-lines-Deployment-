@@ -24,8 +24,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
   const { token } = useAuth();
   const [adding, setAdding] = useState(false);
 
-  const hasDiscount =
-    product.compareAtPrice !== null && product.compareAtPrice > product.price;
+  const hasDiscount = product.compareAtPrice !== null && product.compareAtPrice > product.price;
   const discountPct = hasDiscount
     ? Math.round((1 - product.price / product.compareAtPrice!) * 100)
     : 0;
@@ -91,9 +90,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
 
         {/* Price row */}
         <div className="flex items-baseline gap-2">
-          <span className="text-base font-bold text-foreground">
-            {formatPrice(product.price)}
-          </span>
+          <span className="text-base font-bold text-foreground">{formatPrice(product.price)}</span>
           {hasDiscount && (
             <span className="text-xs text-muted-foreground line-through">
               {formatPrice(product.compareAtPrice!)}

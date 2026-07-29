@@ -1,13 +1,6 @@
 'use client';
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Cart } from '@ecom/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -62,13 +55,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
-  const addItem = useCallback(
-    async (productId: string, quantity = 1) => {
-      const updated = await api.post<Cart>('/api/cart/items', { productId, quantity });
-      setCart(updated);
-    },
-    []
-  );
+  const addItem = useCallback(async (productId: string, quantity = 1) => {
+    const updated = await api.post<Cart>('/api/cart/items', { productId, quantity });
+    setCart(updated);
+  }, []);
 
   const setQuantity = useCallback(async (productId: string, quantity: number) => {
     if (quantity <= 0) {
