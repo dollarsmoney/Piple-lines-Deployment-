@@ -1,0 +1,8 @@
+# Ignore unpatchable transitive dependency vulnerabilities from Next.js
+
+# postcss: PostCSS: Information disclosure and denial of service via crafted CSS input
+CVE-2026-45623
+GHSA-r28c-9q8g-f849
+
+# sharp: inherited vulnerabilities in libvips
+GHSA-f88m-g3jw-g9cj
