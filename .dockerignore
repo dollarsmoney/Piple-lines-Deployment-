@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+**/dist
+**/build
+**/.next
+**/coverage
+.git
+.github
+.env
+.env.local
+**/*.log
+**/*.test.ts
+**/*.test.tsx
+.vscode
+README.md

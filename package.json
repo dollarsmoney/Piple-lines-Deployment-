@@ -1,0 +1,48 @@
+{
+  "name": "ecom-microservices",
+  "version": "1.0.0",
+  "private": true,
+  "description": "E-commerce microservice demo — Node/TypeScript services behind an API gateway with a Next.js + shadcn/ui storefront",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "web"
+  ],
+  "scripts": {
+    "build:packages": "npm run build --workspace=@ecom/shared && npm run build --workspace=@ecom/service-kit",
+    "build": "npm run build:packages && npm run build --workspaces --if-present",
+    "dev": "npm run build:packages && concurrently -k -n gateway,auth,product,order,web -c cyan,magenta,green,yellow,blue \"npm:dev:gateway\" \"npm:dev:auth\" \"npm:dev:product\" \"npm:dev:order\" \"npm:dev:web\"",
+    "dev:gateway": "npm run dev --workspace=@ecom/api-gateway",
+    "dev:auth": "npm run dev --workspace=@ecom/auth-service",
+    "dev:product": "npm run dev --workspace=@ecom/product-service",
+    "dev:order": "npm run dev --workspace=@ecom/order-service",
+    "dev:web": "npm run dev --workspace=@ecom/web",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down -v"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.5",
+    "@vitest/coverage-v8": "^3.0.5",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^3.0.5"
+  }
+}
