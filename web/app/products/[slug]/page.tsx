@@ -33,10 +33,11 @@ export default function ProductPage(props: { params: Promise<{ slug: string }> }
   }
 
   const hasDiscount =
-    product?.compareAtPrice !== null && product?.compareAtPrice! > product?.price!;
-  const discountPct = hasDiscount
-    ? Math.round((1 - product.price / product.compareAtPrice!) * 100)
-    : 0;
+    product != null && product.compareAtPrice != null && product.compareAtPrice > product.price;
+  const discountPct =
+    hasDiscount && product != null && product.compareAtPrice != null
+      ? Math.round((1 - product.price / product.compareAtPrice) * 100)
+      : 0;
 
   return (
     <div className="container-page py-10">

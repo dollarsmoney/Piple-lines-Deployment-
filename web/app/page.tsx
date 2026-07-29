@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import type { Metadata } from 'next';
+
 import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import { useProducts } from '@/hooks/useProducts';
-import type { ProductFilters } from '@/hooks/useProducts';
+
 import { ProductCard } from '@/components/ProductCard';
 import { ProductCardSkeleton } from '@/components/ProductCardSkeleton';
 import { FilterSidebar } from '@/components/FilterSidebar';
