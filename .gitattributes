@@ -1,0 +1,21 @@
+# Git already normalises to LF inside the repository, but with
+# core.autocrlf=true a Windows checkout rewrites the working tree to CRLF.
+# .prettierrc sets "endOfLine": "lf", so `npm run format:check` then fails
+# locally on files that are perfectly clean on the Linux CI runner.
+#
+# Pinning eol=lf keeps the working tree matching what CI sees, so a local
+# pass means a pipeline pass.
+* text=auto eol=lf
+
+# Shell scripts and Docker entrypoints break outright with CRLF.
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# Never touch binaries.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
