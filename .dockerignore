@@ -13,3 +13,8 @@ node_modules
 **/*.test.tsx
 .vscode
 README.md
+
+# The Next.js storefront is built and deployed by Vercel, never containerised.
+# Keeping it out of the context also keeps the Next/Tailwind toolchain out of
+# the backend images. The service Dockerfiles drop it from `workspaces` to match.
+web

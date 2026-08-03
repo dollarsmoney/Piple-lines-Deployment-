@@ -1,0 +1,125 @@
+# ============================================================
+# Local stack — `npm run docker:up`
+# ============================================================
+# Brings up the four backend services on the same network the gateway expects.
+# The Next.js storefront is NOT included: run it separately with
+# `npm run dev:web`, which talks to the gateway on http://localhost:8080.
+#
+# Copy .env.example to .env first — every value below has a demo-safe default,
+# but JWT_SECRET must match between auth-service and the gateway.
+# ============================================================
+
+name: ecom
+
+# Settings shared by all four services, merged in via YAML anchors so there is
+# one place to change the restart policy or logging setup.
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks:
+    - ecom
+  environment:
+    NODE_ENV: production
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+
+services:
+  # --------------------------------------------------------------------------
+  # auth-service — issues and verifies JWTs
+  # --------------------------------------------------------------------------
+  auth-service:
+    <<: *service-defaults
+    build:
+      # Context is the repo root: this is an npm-workspaces monorepo and the
+      # service needs the root manifest plus packages/ to build.
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    image: ecom-auth-service:local
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: 4001
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+    expose:
+      - '4001'
+
+  # --------------------------------------------------------------------------
+  # product-service — the catalogue
+  # --------------------------------------------------------------------------
+  product-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/product-service/Dockerfile
+    image: ecom-product-service:local
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: 4002
+      # Deliberate stall on catalogue reads so the storefront's skeleton
+      # loaders are visible in the demo. Set to 0 to turn it off.
+      ARTIFICIAL_LATENCY_MS: ${ARTIFICIAL_LATENCY_MS:-350}
+    expose:
+      - '4002'
+
+  # --------------------------------------------------------------------------
+  # order-service — carts and checkout; calls product-service for pricing
+  # --------------------------------------------------------------------------
+  order-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/order-service/Dockerfile
+    image: ecom-order-service:local
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: 4003
+      PRODUCT_SERVICE_URL: http://product-service:4002
+    expose:
+      - '4003'
+    depends_on:
+      # Checkout prices a cart against the catalogue, so a healthy
+      # product-service is a hard prerequisite.
+      product-service:
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
+  # api-gateway — the only service published to the host
+  # --------------------------------------------------------------------------
+  # Everything else is reachable only on the internal `ecom` network, so the
+  # gateway's auth and rate limiting cannot be bypassed.
+  # --------------------------------------------------------------------------
+  api-gateway:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    image: ecom-api-gateway:local
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: 8080
+      # Must match auth-service, or issued tokens will not verify here.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      AUTH_SERVICE_URL: http://auth-service:4001
+      PRODUCT_SERVICE_URL: http://product-service:4002
+      ORDER_SERVICE_URL: http://order-service:4003
+    ports:
+      - '${GATEWAY_PORT:-8080}:8080'
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+
+networks:
+  ecom:
+    driver: bridge

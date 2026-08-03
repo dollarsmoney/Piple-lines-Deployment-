@@ -1,0 +1,41 @@
+name: Setup Workspace
+description: Installs Node.js and the monorepo dependencies. Shared by every CI/CD job so the install logic lives in exactly one place.
+
+inputs:
+  node-version:
+    description: Node.js major version to install.
+    required: false
+    default: '22'
+  build-packages:
+    description: Build the shared workspace packages (@ecom/shared, @ecom/service-kit) after installing. Required by any job that compiles or type-checks a service.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js ${{ inputs.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        # Caches ~/.npm (the download cache), keyed on the committed lockfile.
+        # This still helps even though the install below discards that lockfile:
+        # the tarballs it needs are already on disk, so the resolve is offline.
+        cache: npm
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        # The committed lockfile is generated on Windows, so it omits the
+        # Linux-only optional binaries (@tailwindcss/oxide, @next/swc-linux-*).
+        # Installing from it on Ubuntu is what produced the "oxide binding"
+        # failures, so the lockfile is regenerated on the runner instead.
+        rm -rf node_modules package-lock.json
+        npm install --no-audit --no-fund --prefer-offline
+
+    - name: Build shared packages
+      if: inputs.build-packages == 'true'
+      shell: bash
+      # Services import @ecom/shared and @ecom/service-kit by their built
+      # dist/ output, so these must exist before any service compiles.
+      run: npm run build:packages

@@ -1,0 +1,432 @@
+# ============================================================
+# AI PIPELINE FAILURE REPORTER
+# ============================================================
+# Purpose:
+#   Automatically analyse any failed CI or CD workflow run and
+#   post a structured, AI-generated diagnosis as a GitHub
+#   comment on the triggering commit or pull request.
+#
+# How it works:
+#   1. This workflow is triggered by other workflows completing
+#      (`workflow_run` event with conclusion `failure`).
+#   2. It downloads the logs of every failed job in that run.
+#   3. It calls the OpenAI Chat Completions API with a tailored
+#      prompt that includes the raw log snippets.
+#   4. The AI response — containing root cause, affected step,
+#      and suggested fixes — is posted as a GitHub comment.
+#
+# Prerequisites (configure in Settings → Secrets & Variables):
+#   OPENAI_API_KEY  — OpenAI API key with access to gpt-4o-mini
+#   GH_TOKEN        — GitHub token with `repo` scope for the
+#                     GitHub CLI (`gh`) calls (or use GITHUB_TOKEN
+#                     if your repo is not private and needs no
+#                     cross-repo access).
+#
+# Optional:
+#   SLACK_WEBHOOK_URL — if set, the AI diagnosis is also sent to
+#                       the team Slack channel for instant visibility.
+# ============================================================
+
+name: AI Pipeline Failure Reporter
+
+# ---------------------------------------------------------------------------
+# Trigger
+# ---------------------------------------------------------------------------
+# `workflow_run` fires whenever a listed workflow finishes.
+# `types: [completed]` catches every finish, but the first step filters
+# to `failure` conclusions so success runs are ignored immediately.
+#
+# Add any new workflow names here as you create them.
+# ---------------------------------------------------------------------------
+on:
+  workflow_run:
+    workflows:
+      - 'CI Pipeline'
+      - 'CD Pipeline'
+    types:
+      - completed # fires for every conclusion; we filter to `failure` inside
+
+# ---------------------------------------------------------------------------
+# Permissions
+# ---------------------------------------------------------------------------
+# `pull-requests: write` — post comments on PRs
+# `contents: read`       — read repo content (e.g. file context)
+# `actions: read`        — download workflow run logs via the API
+# ---------------------------------------------------------------------------
+permissions:
+  pull-requests: write
+  contents: read
+  actions: read
+
+jobs:
+  # ==========================================================================
+  # JOB: ai-diagnose
+  # ==========================================================================
+  # Runs only when the triggering workflow actually failed.
+  # Fetches logs, calls the AI, and posts the diagnosis as a comment.
+  # ==========================================================================
+  ai-diagnose:
+    name: AI Failure Diagnosis
+    runs-on: ubuntu-latest
+    # Guard: skip this entire job when the upstream workflow succeeded.
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+
+    # Declared at job level so the optional Slack step can test it in its `if:`.
+    # A step cannot read the `env:` block it declares itself, and the `secrets`
+    # context is not available in a step-level condition at all.
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    steps:
+      # ----------------------------------------------------------------------
+      # 1. Checkout
+      # Needed to access the repository context (branch names, file lists)
+      # that may be included in the AI prompt for richer analysis.
+      # ----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------------------
+      # 2. Install dependencies
+      # `jq`   — JSON parsing in shell scripts (usually pre-installed on
+      #          ubuntu-latest, but declared explicitly for clarity).
+      # `gh`   — GitHub CLI for posting comments and querying the API.
+      #          Pre-installed on GitHub-hosted runners.
+      # ----------------------------------------------------------------------
+      - name: Install tooling dependencies
+        run: |
+          # Ensure jq is available (it is pre-installed on ubuntu-latest,
+          # but this makes the dependency explicit and forward-compatible).
+          which jq || sudo apt-get install -y jq
+
+      # ----------------------------------------------------------------------
+      # 3. Fetch failed job logs
+      # Uses the GitHub REST API (via the gh CLI) to:
+      #   a) List all jobs in the failed workflow run.
+      #   b) Filter to only jobs with conclusion == "failure".
+      #   c) Download the raw log text for each failed job.
+      #   d) Concatenate and truncate to 12 000 characters — enough context
+      #      for the AI to diagnose the problem without hitting token limits.
+      #
+      # The GITHUB_TOKEN is automatically provided by Actions; no extra
+      # secret is needed for public repos or same-repo workflows.
+      # ----------------------------------------------------------------------
+      - name: Fetch failed job logs
+        id: fetch-logs
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Fetching jobs for run $RUN_ID in $REPO..."
+
+          # Get all jobs for this workflow run
+          JOBS=$(gh api \
+            repos/$REPO/actions/runs/$RUN_ID/jobs \
+            --jq '.jobs[] | select(.conclusion == "failure") | {id: .id, name: .name}')
+
+          if [[ -z "$JOBS" ]]; then
+            echo "No failed jobs found — nothing to analyse."
+            echo "logs=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Accumulate logs from all failed jobs into one file
+          COMBINED_LOGS=""
+          while IFS= read -r JOB_JSON; do
+            JOB_ID=$(echo "$JOB_JSON"   | jq -r '.id')
+            JOB_NAME=$(echo "$JOB_JSON" | jq -r '.name')
+
+            echo "--- Downloading logs for job: $JOB_NAME (id=$JOB_ID) ---"
+
+            # Download this job's log text; the API returns plain text
+            JOB_LOG=$(gh api \
+              repos/$REPO/actions/jobs/$JOB_ID/logs \
+              --accept application/vnd.github.v3.raw 2>/dev/null || echo "[Log unavailable]")
+
+            COMBINED_LOGS+="
+          ===== JOB: $JOB_NAME =====
+          $JOB_LOG
+          "
+          done < <(echo "$JOBS")
+
+          # Truncate to 12 000 characters to stay well within token limits.
+          # We take the LAST 12 000 chars because errors typically appear
+          # at the end of logs.
+          TRUNCATED_LOGS="${COMBINED_LOGS: -12000}"
+
+          # Write to a temp file (avoids env-var size limits)
+          echo "$TRUNCATED_LOGS" > /tmp/failed_logs.txt
+          echo "logs_file=/tmp/failed_logs.txt" >> "$GITHUB_OUTPUT"
+          echo "Logs collected: $(wc -c < /tmp/failed_logs.txt) bytes"
+
+      # ----------------------------------------------------------------------
+      # 4. Call OpenAI API for diagnosis
+      # Constructs a structured prompt that instructs the model to act as a
+      # senior DevOps engineer and return a JSON-formatted diagnosis covering:
+      #   • summary         — one-sentence overview of what broke
+      #   • root_cause      — the underlying technical reason for the failure
+      #   • failed_step     — the exact pipeline step or command that failed
+      #   • error_snippet   — the key log lines showing the error
+      #   • fix_suggestions — ordered list of actionable remediation steps
+      #   • prevention_tips — how to avoid the same failure in future
+      #
+      # We use gpt-4o-mini for a good balance of speed, quality, and cost.
+      # Swap to `gpt-4o` for higher accuracy on complex multi-service failures.
+      # The response_format is set to `json_object` for reliable parsing.
+      # ----------------------------------------------------------------------
+      - name: Call OpenAI for diagnosis
+        id: ai-diagnosis
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # Read log content; default to a placeholder if fetch step had no logs
+          if [[ -f /tmp/failed_logs.txt ]]; then
+            LOG_CONTENT=$(cat /tmp/failed_logs.txt)
+          else
+            LOG_CONTENT="[No logs available — the fetch step produced no output]"
+          fi
+
+          # Metadata about the failed workflow for additional context
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          TRIGGER_BRANCH="${{ github.event.workflow_run.head_branch }}"
+          TRIGGER_COMMIT="${{ github.event.workflow_run.head_sha }}"
+          TRIGGER_COMMIT_SHORT="${TRIGGER_COMMIT:0:7}"
+          ACTOR="${{ github.event.workflow_run.triggering_actor.login }}"
+          RUN_URL="${{ github.event.workflow_run.html_url }}"
+
+          # Build the JSON request body.
+          # The system prompt frames the AI as a DevOps expert.
+          # The user prompt provides all the relevant context.
+          REQUEST_BODY=$(jq -n \
+            --arg workflow  "$WORKFLOW_NAME" \
+            --arg branch    "$TRIGGER_BRANCH" \
+            --arg commit    "$TRIGGER_COMMIT_SHORT" \
+            --arg actor     "$ACTOR" \
+            --arg logs      "$LOG_CONTENT" \
+            '{
+              model: "gpt-4o-mini",
+              response_format: { type: "json_object" },
+              temperature: 0.2,
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a senior DevOps and software engineering expert. Your job is to analyse CI/CD pipeline failures and provide clear, actionable diagnoses. Always respond with a valid JSON object. Be concise and technically precise."
+                },
+                {
+                  role: "user",
+                  content: ("A GitHub Actions pipeline has failed. Please diagnose the failure and respond ONLY with a JSON object matching this exact schema:\n{\n  \"summary\": \"<one sentence describing what broke>\",\n  \"root_cause\": \"<detailed technical explanation of why it failed>\",\n  \"failed_step\": \"<the specific step or command that failed>\",\n  \"error_snippet\": \"<the 3-5 most relevant log lines showing the error>\",\n  \"fix_suggestions\": [\"<step 1>\", \"<step 2>\", \"...\"],\n  \"prevention_tips\": [\"<tip 1>\", \"<tip 2>\"]\n}\n\nContext:\n- Workflow: " + $workflow + "\n- Branch: " + $branch + "\n- Commit: " + $commit + "\n- Triggered by: " + $actor + "\n\nFailed job logs (last 12 000 characters):\n\n" + $logs)
+                }
+              ]
+            }')
+
+          echo "Calling OpenAI API..."
+          RESPONSE=$(curl -s -X POST https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d "$REQUEST_BODY")
+
+          # Check for API errors before extracting the diagnosis
+          API_ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+          if [[ -n "$API_ERROR" ]]; then
+            echo "❌ OpenAI API error: $API_ERROR"
+            echo "diagnosis_json={\"summary\":\"AI analysis unavailable\",\"root_cause\":\"OpenAI API returned an error: $API_ERROR\",\"failed_step\":\"Unknown\",\"error_snippet\":\"See workflow logs\",\"fix_suggestions\":[\"Check the OPENAI_API_KEY secret\"],\"prevention_tips\":[]}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract the AI's JSON content from the chat response
+          DIAGNOSIS=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          echo "AI diagnosis received."
+
+          # Write to file to avoid shell variable size limits and newline issues
+          echo "$DIAGNOSIS" > /tmp/diagnosis.json
+          echo "diagnosis_file=/tmp/diagnosis.json" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------------------
+      # 5. Format and post GitHub comment
+      # Reads the structured JSON diagnosis and renders it as a rich GitHub
+      # Markdown comment, then posts it to the commit or PR that caused
+      # the pipeline failure.
+      #
+      # Comment format:
+      #   🤖 AI Pipeline Diagnosis header
+      #   Summary callout
+      #   Root cause section
+      #   Failed step + error snippet (code block)
+      #   Fix suggestions (numbered list)
+      #   Prevention tips (bulleted list)
+      #   Footer with links to the run and the commit
+      # ----------------------------------------------------------------------
+      - name: Post diagnosis as GitHub comment
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Parse the diagnosis JSON
+          if [[ -f /tmp/diagnosis.json ]]; then
+            DIAG=$(cat /tmp/diagnosis.json)
+          else
+            DIAG='{"summary":"No diagnosis available","root_cause":"The AI analysis step did not produce output.","failed_step":"Unknown","error_snippet":"","fix_suggestions":["Check the workflow logs manually"],"prevention_tips":[]}'
+          fi
+
+          SUMMARY=$(echo "$DIAG"        | jq -r '.summary        // "Unknown"')
+          ROOT_CAUSE=$(echo "$DIAG"     | jq -r '.root_cause     // "Unknown"')
+          FAILED_STEP=$(echo "$DIAG"    | jq -r '.failed_step    // "Unknown"')
+          ERROR_SNIPPET=$(echo "$DIAG"  | jq -r '.error_snippet  // ""')
+          FIX_LIST=$(echo "$DIAG"       | jq -r '.fix_suggestions[]? | "1. " + .')
+          PREVENTION=$(echo "$DIAG"     | jq -r '.prevention_tips[]? | "- " + .')
+
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          TRIGGER_BRANCH="${{ github.event.workflow_run.head_branch }}"
+          TRIGGER_SHA="${{ github.event.workflow_run.head_sha }}"
+          ACTOR="${{ github.event.workflow_run.triggering_actor.login }}"
+          RUN_URL="${{ github.event.workflow_run.html_url }}"
+          SHORT_SHA="${TRIGGER_SHA:0:7}"
+
+          # Build the full Markdown comment body
+          COMMENT=$(cat <<MARKDOWN
+          ## 🤖 AI Pipeline Failure Diagnosis
+
+          > **Workflow:** \`$WORKFLOW_NAME\`  |  **Branch:** \`$TRIGGER_BRANCH\`  |  **Commit:** [\`$SHORT_SHA\`](${{ github.server_url }}/$REPO/commit/$TRIGGER_SHA)  |  **Triggered by:** @$ACTOR
+
+          ---
+
+          ### 📋 Summary
+          $SUMMARY
+
+          ---
+
+          ### 🔍 Root Cause
+          $ROOT_CAUSE
+
+          ---
+
+          ### 💥 Failed Step
+          \`$FAILED_STEP\`
+
+          **Key log lines:**
+          \`\`\`
+          $ERROR_SNIPPET
+          \`\`\`
+
+          ---
+
+          ### 🔧 Fix Suggestions
+          $FIX_LIST
+
+          ---
+
+          ### 🛡️ Prevention Tips
+          $PREVENTION
+
+          ---
+
+          <details>
+          <summary>🔗 Links</summary>
+
+          - [View full workflow run]($RUN_URL)
+          - [View commit](${{ github.server_url }}/$REPO/commit/$TRIGGER_SHA)
+
+          </details>
+
+          ---
+          *This diagnosis was generated automatically by the AI Pipeline Failure Reporter using GPT-4o-mini. Review before acting.*
+          MARKDOWN
+          )
+
+          # Try to post the comment on the associated PR first;
+          # fall back to a commit comment if no PR is linked.
+          PR_NUMBER=$(gh api \
+            repos/$REPO/commits/$TRIGGER_SHA/pulls \
+            --jq '.[0].number // empty' 2>/dev/null || true)
+
+          if [[ -n "$PR_NUMBER" ]]; then
+            echo "Posting comment on PR #$PR_NUMBER..."
+            gh pr comment "$PR_NUMBER" \
+              --repo "$REPO" \
+              --body "$COMMENT"
+          else
+            echo "No associated PR found — posting as commit comment on $SHORT_SHA..."
+            gh api \
+              repos/$REPO/commits/$TRIGGER_SHA/comments \
+              -X POST \
+              -f body="$COMMENT"
+          fi
+
+          echo "✅ AI diagnosis comment posted successfully."
+
+      # ----------------------------------------------------------------------
+      # 6. (Optional) Send diagnosis to Slack
+      # If SLACK_WEBHOOK_URL is configured, posts a condensed version of the
+      # AI diagnosis to the team Slack channel so engineers get notified
+      # immediately without needing to check GitHub.
+      # This step is skipped automatically when the secret is not set.
+      # ----------------------------------------------------------------------
+      - name: Send diagnosis to Slack
+        if: env.SLACK_WEBHOOK_URL != ''
+        run: |
+          if [[ -f /tmp/diagnosis.json ]]; then
+            SUMMARY=$(cat /tmp/diagnosis.json | jq -r '.summary // "Unknown"')
+            ROOT_CAUSE=$(cat /tmp/diagnosis.json | jq -r '.root_cause // "Unknown"')
+            FAILED_STEP=$(cat /tmp/diagnosis.json | jq -r '.failed_step // "Unknown"')
+          else
+            SUMMARY="AI analysis unavailable"
+            ROOT_CAUSE="The diagnosis file was not produced."
+            FAILED_STEP="Unknown"
+          fi
+
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          TRIGGER_BRANCH="${{ github.event.workflow_run.head_branch }}"
+          RUN_URL="${{ github.event.workflow_run.html_url }}"
+          ACTOR="${{ github.event.workflow_run.triggering_actor.login }}"
+
+          # Use Slack Block Kit for a rich, formatted message
+          PAYLOAD=$(jq -n \
+            --arg summary    "$SUMMARY" \
+            --arg root_cause "$ROOT_CAUSE" \
+            --arg step       "$FAILED_STEP" \
+            --arg workflow   "$WORKFLOW_NAME" \
+            --arg branch     "$TRIGGER_BRANCH" \
+            --arg actor      "$ACTOR" \
+            --arg run_url    "$RUN_URL" \
+            '{
+              attachments: [{
+                color: "#e01e5a",
+                blocks: [
+                  {
+                    type: "header",
+                    text: { type: "plain_text", text: "❌ Pipeline Failure — AI Diagnosis" }
+                  },
+                  {
+                    type: "section",
+                    fields: [
+                      { type: "mrkdwn", text: ("*Workflow:*\n" + $workflow) },
+                      { type: "mrkdwn", text: ("*Branch:*\n`" + $branch + "`") },
+                      { type: "mrkdwn", text: ("*Triggered by:*\n@" + $actor) },
+                      { type: "mrkdwn", text: ("*Failed step:*\n`" + $step + "`") }
+                    ]
+                  },
+                  {
+                    type: "section",
+                    text: { type: "mrkdwn", text: ("*🔍 Summary:*\n" + $summary) }
+                  },
+                  {
+                    type: "section",
+                    text: { type: "mrkdwn", text: ("*Root cause:*\n" + $root_cause) }
+                  },
+                  {
+                    type: "actions",
+                    elements: [{
+                      type: "button",
+                      style: "danger",
+                      text: { type: "plain_text", text: "View Failed Run" },
+                      url: $run_url
+                    }]
+                  }
+                ]
+              }]
+            }')
+
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" "$SLACK_WEBHOOK_URL"
+          echo "✅ Slack notification sent."

@@ -1,3 +1,26 @@
+# ============================================================
+# CI PIPELINE — Continuous Integration for ecom-microservices
+# ============================================================
+# The pipeline is deliberately split into many small, single-purpose jobs
+# rather than one long "build and test" job. That buys three things:
+#
+#   1. A readable run graph — the Actions UI draws the stages below as a
+#      dependency diagram instead of one opaque box.
+#   2. Faster feedback — the six checks in stage 2 run in parallel, so total
+#      wall-clock time is roughly the slowest check, not the sum of all of them.
+#   3. Precise failures — a red node names the thing that broke ("Lint",
+#      "Types", "Trivy") without anyone having to open the logs.
+#
+#   ┌───────────┐   ┌──────────┐   ┌───────┐   ┌─────────┐
+#   │ Preflight │──▶│ Format   │──▶│ Build │──▶│ Summary │
+#   └───────────┘   │ Lint     │   └───────┘   └─────────┘
+#                   │ Types    │
+#                   │ Tests    │
+#                   │ Trivy    │
+#                   │ CodeQL   │
+#                   └──────────┘
+# ============================================================
+
 name: CI Pipeline
 
 on:
@@ -7,49 +30,267 @@ on:
   pull_request:
     branches:
       - main
+  # Allows a re-run from the Actions tab without pushing an empty commit.
+  workflow_dispatch:
+
+# Superseded runs on the same branch are cancelled — pushing three times in a
+# row should not leave three full pipelines competing for runners.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege baseline. The one job that needs more (CodeQL) asks for it.
+permissions:
+  contents: read
+
+env:
+  # Matches the `engines.node` floor in package.json. CI previously ran Node 20
+  # while the manifest demanded >=22, so the runner was not testing against the
+  # version the services actually declare support for.
+  NODE_VERSION: '22'
 
 jobs:
-  build-and-test:
-    name: Build and Test
+  # ==========================================================================
+  # STAGE 1 — Preflight
+  # ==========================================================================
+  # Proves the dependency tree installs cleanly before six jobs fan out and
+  # fail identically. Also warms the shared ~/.npm cache that every downstream
+  # job restores, and publishes run metadata for the final summary.
+  # ==========================================================================
+  preflight:
+    name: Preflight
     runs-on: ubuntu-latest
+    outputs:
+      commit_subject: ${{ steps.meta.outputs.commit_subject }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install Dependencies
-        run: rm -rf node_modules package-lock.json && npm install
+      - name: Collect run metadata
+        id: meta
+        run: |
+          echo "short_sha=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "commit_subject=$(git log -1 --pretty=%s)" >> "$GITHUB_OUTPUT"
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - name: Render preflight summary
+        # The commit subject is passed through the environment rather than
+        # interpolated into the script: `${{ }}` is substituted before bash
+        # parses anything, so a subject containing quotes or backticks would
+        # otherwise break the script — or run as part of it.
+        env:
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+          COMMIT_SUBJECT: ${{ steps.meta.outputs.commit_subject }}
+        run: |
+          {
+            echo "## Preflight"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Commit | \`${SHORT_SHA}\` — ${COMMIT_SUBJECT} |"
+            echo "| Branch | \`${GITHUB_REF_NAME}\` |"
+            echo "| Trigger | \`${GITHUB_EVENT_NAME}\` |"
+            echo "| Node | \`$(node --version)\` |"
+            echo "| npm | \`$(npm --version)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # STAGE 2a — Formatting
+  # ==========================================================================
+  # The cheapest check in the pipeline, so it gets its own node and fails in
+  # seconds. Read-only: `format:check` never rewrites files on the runner.
+  # ==========================================================================
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    needs: preflight
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Format Check
-        run: npm run format:check
+      - name: Check formatting
+        # Prettier emits ANSI colour codes even when its output is piped, which
+        # would stop the `[warn]` lines below from matching.
+        env:
+          NO_COLOR: '1'
+        run: |
+          if npm run format:check > /tmp/prettier.log 2>&1; then
+            cat /tmp/prettier.log
+            {
+              echo "## Format"
+              echo
+              echo "All files match the Prettier configuration."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat /tmp/prettier.log
+            {
+              echo "## Format"
+              echo
+              echo "These files are not formatted. Run \`npm run format\` locally to fix them."
+              echo
+              echo '```'
+              grep -E '^\[warn\]' /tmp/prettier.log || tail -20 /tmp/prettier.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-      - name: Lint Check
-        run: npm run lint
+  # ==========================================================================
+  # STAGE 2b — Lint
+  # ==========================================================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: preflight
 
-      - name: Type Check
-        run: npm run typecheck
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Run Tests with Coverage
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run ESLint
+        run: |
+          if npm run lint > /tmp/eslint.log 2>&1; then
+            cat /tmp/eslint.log
+            {
+              echo "## Lint"
+              echo
+              echo "ESLint reported no problems."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat /tmp/eslint.log
+            {
+              echo "## Lint"
+              echo
+              echo '```'
+              tail -40 /tmp/eslint.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  # ==========================================================================
+  # STAGE 2c — Types
+  # ==========================================================================
+  # `npm run typecheck` builds the shared packages first, because services
+  # resolve @ecom/shared and @ecom/service-kit through their built dist/
+  # output — tsc cannot resolve those imports until they have been compiled.
+  # ==========================================================================
+  typecheck:
+    name: Types
+    runs-on: ubuntu-latest
+    needs: preflight
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run tsc --noEmit across all workspaces
+        run: |
+          if npm run typecheck > /tmp/tsc.log 2>&1; then
+            {
+              echo "## Types"
+              echo
+              echo "\`tsc --noEmit\` passed for every workspace."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat /tmp/tsc.log
+            {
+              echo "## Types"
+              echo
+              echo '```'
+              grep -E 'error TS' /tmp/tsc.log | head -40 || tail -40 /tmp/tsc.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  # ==========================================================================
+  # STAGE 2d — Tests and coverage
+  # ==========================================================================
+  # Runs the Vitest suite, renders the coverage numbers into the run summary,
+  # and uploads the full report as an artifact for offline inspection.
+  # ==========================================================================
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: preflight
+    outputs:
+      lines: ${{ steps.coverage.outputs.lines }}
+      branches: ${{ steps.coverage.outputs.branches }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run Vitest with coverage
         run: npm run test:coverage
 
-      - name: Upload Coverage Artifact
+      - name: Extract coverage metrics
+        id: coverage
+        # `always()` so a failing suite still reports whatever coverage it
+        # managed to produce, rather than leaving the summary blank.
+        if: always()
+        run: |
+          SUMMARY_FILE=coverage/coverage-summary.json
+          if [[ ! -f "$SUMMARY_FILE" ]]; then
+            echo "No coverage summary produced."
+            exit 0
+          fi
+          for METRIC in lines statements functions branches; do
+            echo "${METRIC}=$(jq -r ".total.${METRIC}.pct" "$SUMMARY_FILE")" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Render coverage summary
+        if: always()
+        run: |
+          SUMMARY_FILE=coverage/coverage-summary.json
+          {
+            echo "## Tests"
+            echo
+            if [[ -f "$SUMMARY_FILE" ]]; then
+              echo "Thresholds are enforced at **55%** by \`vitest.config.ts\`."
+              echo
+              echo "| Metric | Covered | Total | Percent |"
+              echo "| --- | ---: | ---: | ---: |"
+              for METRIC in lines statements functions branches; do
+                COVERED=$(jq -r ".total.${METRIC}.covered" "$SUMMARY_FILE")
+                TOTAL=$(jq -r ".total.${METRIC}.total" "$SUMMARY_FILE")
+                PCT=$(jq -r ".total.${METRIC}.pct" "$SUMMARY_FILE")
+                echo "| ${METRIC} | ${COVERED} | ${TOTAL} | ${PCT}% |"
+              done
+            else
+              echo "No coverage report was produced — the suite failed before reporting."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -57,17 +298,93 @@ jobs:
           path: coverage/
           retention-days: 14
 
-      - name: Build Backend Services
-        run: |
-          npm run build:packages
-          npm run build --workspace=@ecom/api-gateway
-          npm run build --workspace=@ecom/auth-service
-          npm run build --workspace=@ecom/product-service
-          npm run build --workspace=@ecom/order-service
-
-  analyze:
-    name: CodeQL Static Analysis
+  # ==========================================================================
+  # STAGE 2e — Dependency vulnerability scan
+  # ==========================================================================
+  # Trivy scans the installed dependency tree for known CVEs. Suppressions live
+  # in .trivyignore so each one stays reviewable in version control.
+  # ==========================================================================
+  security:
+    name: Trivy
     runs-on: ubuntu-latest
+    needs: preflight
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # A JSON report first, with exit-code 0, so the summary table can always
+      # be rendered — even when the gating scan below fails the job.
+      - name: Scan dependencies (report)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: '.'
+          format: json
+          output: trivy-report.json
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          trivyignores: .trivyignore
+
+      - name: Render vulnerability summary
+        if: always()
+        run: |
+          {
+            echo "## Trivy"
+            echo
+            if [[ ! -f trivy-report.json ]]; then
+              echo "The scan produced no report."
+            else
+              COUNT=$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-report.json)
+              if [[ "$COUNT" == "0" ]]; then
+                echo "No fixable CRITICAL or HIGH vulnerabilities found."
+              else
+                echo "Found **${COUNT}** fixable CRITICAL/HIGH vulnerabilities."
+                echo
+                echo "| Severity | Package | Installed | Fixed in | Advisory |"
+                echo "| --- | --- | --- | --- | --- |"
+                jq -r '
+                  [.Results[]?.Vulnerabilities[]?]
+                  | sort_by(.Severity)
+                  | .[:25][]
+                  | "| \(.Severity) | \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion // "—") | [\(.VulnerabilityID)](\(.PrimaryURL // "https://nvd.nist.gov")) |"
+                ' trivy-report.json
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The gating pass. Same inputs, but exit-code 1 so CRITICAL/HIGH findings
+      # actually fail the pipeline.
+      - name: Fail on CRITICAL or HIGH vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: '.'
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          trivyignores: .trivyignore
+
+  # ==========================================================================
+  # STAGE 2f — CodeQL static analysis
+  # ==========================================================================
+  # Deep semantic analysis for injection, XSS, path traversal and similar
+  # classes of bug. Results land in the Security tab, not the run log.
+  # ==========================================================================
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    needs: preflight
+
     permissions:
       actions: read
       contents: read
@@ -76,7 +393,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ['javascript-typescript']
+        language:
+          - javascript-typescript
 
     steps:
       - name: Checkout repository
@@ -87,7 +405,150 @@ jobs:
         with:
           languages: ${{ matrix.language }}
 
-      - name: Perform CodeQL Analysis
+      - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: '/language:${{matrix.language}}'
+          category: /language:${{ matrix.language }}
+
+      - name: Render analysis summary
+        if: always()
+        run: |
+          {
+            echo "## CodeQL"
+            echo
+            echo "Analysed \`${{ matrix.language }}\`. Findings are published to the [Security tab](${{ github.server_url }}/${{ github.repository }}/security/code-scanning)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # STAGE 3 — Build
+  # ==========================================================================
+  # Runs only once every correctness gate is green, so a compile is never spent
+  # on code that already failed lint or tests. One matrix leg per service means
+  # the graph shows exactly which service failed to compile.
+  #
+  # The Next.js storefront is intentionally absent: it is built and deployed by
+  # Vercel, so duplicating that build here would only add time and a second
+  # place for it to break.
+  # ==========================================================================
+  build:
+    name: Build ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs:
+      - format
+      - lint
+      - typecheck
+      - test
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api-gateway
+            dir: services/gateway
+          - service: auth-service
+            dir: services/auth-service
+          - service: product-service
+            dir: services/product-service
+          - service: order-service
+            dir: services/order-service
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          build-packages: 'true'
+
+      - name: Compile @ecom/${{ matrix.service }}
+        run: npm run build --workspace=@ecom/${{ matrix.service }}
+
+      - name: Report build output
+        run: |
+          DIST="${{ matrix.dir }}/dist"
+          {
+            echo "## Build — ${{ matrix.service }}"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Output | \`${DIST}\` |"
+            echo "| Size | $(du -sh "$DIST" | cut -f1) |"
+            echo "| Files | $(find "$DIST" -type f | wc -l) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # STAGE 4 — Summary
+  # ==========================================================================
+  # The dashboard. `if: always()` plus a dependency on every other job makes
+  # this the single node that closes the graph, reporting each stage's result
+  # in one table so the outcome is legible without expanding any job.
+  # ==========================================================================
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - preflight
+      - format
+      - lint
+      - typecheck
+      - test
+      - security
+      - codeql
+      - build
+
+    steps:
+      - name: Render pipeline dashboard
+        env:
+          R_FORMAT: ${{ needs.format.result }}
+          R_LINT: ${{ needs.lint.result }}
+          R_TYPES: ${{ needs.typecheck.result }}
+          R_TEST: ${{ needs.test.result }}
+          R_SECURITY: ${{ needs.security.result }}
+          R_CODEQL: ${{ needs.codeql.result }}
+          R_BUILD: ${{ needs.build.result }}
+          COV_LINES: ${{ needs.test.outputs.lines }}
+          COV_BRANCHES: ${{ needs.test.outputs.branches }}
+          COMMIT_SUBJECT: ${{ needs.preflight.outputs.commit_subject }}
+          SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
+        run: |
+          # Maps a job result to a status icon for the dashboard table.
+          icon() {
+            case "$1" in
+              success)   echo ':white_check_mark: passed' ;;
+              failure)   echo ':x: failed' ;;
+              cancelled) echo ':black_circle: cancelled' ;;
+              skipped)   echo ':fast_forward: skipped' ;;
+              *)         echo ":grey_question: $1" ;;
+            esac
+          }
+
+          {
+            echo "# CI Pipeline"
+            echo
+            echo "**\`${SHORT_SHA}\`** — ${COMMIT_SUBJECT}"
+            echo
+            echo "| Stage | Check | Result |"
+            echo "| --- | --- | --- |"
+            echo "| Quality | Format | $(icon "$R_FORMAT") |"
+            echo "| Quality | Lint | $(icon "$R_LINT") |"
+            echo "| Quality | Types | $(icon "$R_TYPES") |"
+            echo "| Quality | Tests | $(icon "$R_TEST") |"
+            echo "| Security | Trivy | $(icon "$R_SECURITY") |"
+            echo "| Security | CodeQL | $(icon "$R_CODEQL") |"
+            echo "| Release | Build (4 services) | $(icon "$R_BUILD") |"
+            echo
+            if [[ -n "$COV_LINES" ]]; then
+              echo "**Coverage** — lines \`${COV_LINES}%\`, branches \`${COV_BRANCHES}%\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if any upstream stage failed
+        # The summary above must render before the pipeline is failed, so this
+        # gate is a separate step rather than a condition on the job itself.
+        if: contains(needs.*.result, 'failure')
+        run: |
+          echo "One or more CI stages failed — see the summary table above."
+          exit 1
